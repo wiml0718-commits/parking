@@ -249,7 +249,7 @@ function level(a,t){const r=t?a/t:0;if(a<=0)return'red';if(r<0.08)return'red';if
    ============================================================ */
 // ★ 部署好 tdx-proxy.js 後，把網址填進來，就會改用真實全台資料。
 //   留空字串時，仍使用下方模擬資料，方便先看畫面。
-const CONFIG = { PROXY_URL: '' }; // 例：'https://your-proxy.onrender.com/api/parking'
+const CONFIG = { PROXY_URL: 'https://parking-lzbf.onrender.com/api/parking' }; // 例：'https://your-proxy.onrender.com/api/parking'
 let lastDataTime=null;             // 後端動態車位的更新時間（給「更新於 X 分鐘前」用）
 
 async function fetchParkingData(la,lo,radius,fresh){
