@@ -280,12 +280,15 @@ async function getCustom(city, loader, force){
   return result;
 }
 
-/* ---- 合併靜態 + 動態，輸出前端格式 + 資料時間 ---- */
+/* ---- 合併靜態 + 動態，輸出前端格式 + 資料時間 ----
+   hasStatic：這縣市有沒有「停車場清單」。前端用它區分：
+     hasStatic=false → 該縣市未提供（如彰化）
+     hasStatic=true 但 lots 空 → 有停車場、但目前無即時回報（暫時/未開放動態） */
 async function buildLots(city, force){
   // 有專用資料源的縣市（如新竹），直接用該來源
   if(CUSTOM_SOURCES[city]){
     const d=await getCustom(city, CUSTOM_SOURCES[city], force);
-    return { lots:d.lots, dataTime:d.t };
+    return { lots:d.lots, dataTime:d.t, hasStatic:true };
   }
   const [s,d]=await Promise.all([getStatic(city), getDynamic(city, force)]);
   const lots=[];
@@ -299,7 +302,7 @@ async function buildLots(city, force){
       total, available, type:base.type, fee:base.fee, ev:0
     });
   }
-  return { lots, dataTime:d.t };
+  return { lots, dataTime:d.t, hasStatic:(s.off.length+s.on.length)>0 };
 }
 
 /* ---- 對外端點 ---- */
@@ -310,13 +313,13 @@ app.get('/api/parking', async (req,res)=>{
   if(isNaN(lat)||isNaN(lng)) return res.status(400).json({error:'缺少 lat / lng'});
   try{
     const city=nearestCity(lat,lng);
-    const {lots,dataTime}=await buildLots(city, force);
+    const {lots,dataTime,hasStatic}=await buildLots(city, force);
     const near=lots
       .map(p=>({...p,_d:haversine(lat,lng,p.lat,p.lng)}))
       .filter(p=>p._d<=radius)
       .sort((a,b)=>a._d-b._d)
       .slice(0,40);
-    res.json({ lots:near, dataTime, city });            // dataTime 供前端顯示「更新於 X 分鐘前」
+    res.json({ lots:near, dataTime, city, hasStatic, cityTotal:lots.length });
   }catch(e){
     console.error(e);
     res.status(502).json({error:'TDX 讀取失敗',detail:String(e.message||e)});
