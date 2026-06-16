@@ -338,7 +338,11 @@ function renderMap(){
 function renderList(){
   const el=document.getElementById('list');
   document.getElementById('cnt').textContent=lots.length;
-  if(!lots.length){el.innerHTML='<div class="empty">這個區域目前沒有即時車位資料。<br>試著移動地圖到市區，再按「搜尋此區域」。</div>';return;}
+  if(!lots.length){
+    const cn=nearestCity(center.la,center.lo);
+    el.innerHTML=`<div class="empty"><b>${cn}</b>目前未提供即時車位資料。<br><br>並非每個縣市都有開放即時停車資料，這與 App 無關，而是該縣市政府尚未提供。<br><br>資料較完整的縣市以雙北、桃園、台中等為主，可從左上角切換縣市試試。</div>`;
+    return;
+  }
   const sorted=[...lots].sort((a,b)=>a._d-b._d);
   el.innerHTML=sorted.map(lot=>{
     const lv=level(lot.available,lot.total);
