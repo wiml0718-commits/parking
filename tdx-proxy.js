@@ -227,8 +227,53 @@ async function getDynamic(city, force){
   return dynCache[city]={t:Date.now(),map:{...off,...on}};
 }
 
+/* ====================================================================
+ *  縣市專用資料源（TDX 沒有的縣市，改接該縣市自己的開放資料）
+ *  新竹市：新竹市府 hispark 即時剩餘停車位（不走 TDX、不佔 TDX 額度）
+ *  欄位：FREEQUANTITY 汽車剩餘 / TOTALQUANTITY 汽車總 / LATITUDE / LONGITUDE
+ * ==================================================================== */
+const customCache={};
+const CUSTOM_SOURCES={ Hsinchu: loadHsinchu };
+
+async function loadHsinchu(){
+  const r=await fetch('https://hispark.hccg.gov.tw/OpenData/GetParkInfo',{headers:{'accept-encoding':'gzip'}});
+  if(!r.ok) throw new Error('Hsinchu '+r.status);
+  const arr=asArray(await r.json());
+  const out=[];
+  for(const p of arr){
+    const lat=parseFloat(p.LATITUDE), lng=parseFloat(p.LONGITUDE);
+    if(!(lng>119&&lng<122&&lat>21&&lat<26)) continue;     // 只收合理的台灣 WGS84 座標
+    const avail=parseInt(p.FREEQUANTITY,10);
+    if(isNaN(avail)||avail<0) continue;                   // 無感測/不明就跳過
+    const total=parseInt(p.TOTALQUANTITY,10);
+    out.push({
+      id:'hc:'+(p.PARKNO ?? p.PARKINGNAME),
+      name:p.PARKINGNAME||'停車場',
+      lat,lng,
+      total:isNaN(total)?avail:total,
+      available:avail,
+      type:'路外',
+      fee:(p.WEEKDAYS||'').toString().slice(0,20)||'依現場標示',
+      ev:parseInt(p.TOTALQUANTITYECAR,10)||0
+    });
+  }
+  return out;
+}
+
+async function getCustom(city, loader, force){
+  const c=customCache[city];
+  if(!force && c && Date.now()-c.t < DYN_TTL) return c;
+  const lots=await loader();
+  return customCache[city]={t:Date.now(), lots};
+}
+
 /* ---- 合併靜態 + 動態，輸出前端格式 + 資料時間 ---- */
 async function buildLots(city, force){
+  // 有專用資料源的縣市（如新竹），直接用該來源
+  if(CUSTOM_SOURCES[city]){
+    const d=await getCustom(city, CUSTOM_SOURCES[city], force);
+    return { lots:d.lots, dataTime:d.t };
+  }
   const [s,d]=await Promise.all([getStatic(city), getDynamic(city, force)]);
   const lots=[];
   for(const base of [...s.off, ...s.on]){
