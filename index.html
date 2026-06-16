@@ -60,6 +60,19 @@
   }
   .radius button.on{background:var(--ink);color:#fff;}
 
+  /* ---------- 地點搜尋框 ---------- */
+  .searchbar{
+    display:flex;align-items:center;gap:8px;background:var(--card);
+    border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);
+    padding:9px 12px;margin-bottom:9px;
+  }
+  .searchbar .sicon{width:18px;height:18px;color:var(--muted);flex:none;}
+  #placeInput{border:0;outline:0;background:transparent;font:inherit;font-size:14px;
+    color:var(--ink);flex:1;min-width:0;}
+  #placeClear{border:0;background:transparent;color:var(--muted);font-size:15px;
+    cursor:pointer;display:none;padding:2px 4px;flex:none;}
+  #placeClear.show{display:block;}
+
   /* ---------- 浮動定位鈕 ---------- */
   .locate{
     position:fixed;right:14px;z-index:600;bottom:calc(42vh + 14px);
@@ -149,6 +162,8 @@
   .p-red .cap{background:var(--red);}
 
   .me{width:18px;height:18px;border-radius:50%;background:#2C7BE5;border:3px solid #fff;box-shadow:0 0 0 6px rgba(44,123,229,.22),0 1px 4px rgba(0,0,0,.3);}
+  .placepin{width:22px;height:22px;border-radius:50% 50% 50% 4px;transform:rotate(45deg);
+    background:#7A4FD0;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);}
 
   .toast{
     position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 96px);transform:translateX(-50%);
@@ -169,6 +184,11 @@
     <div class="pmark">P</div>
     <h1>車位通</h1>
     <div class="area"><span class="dot"></span><select id="citySel" aria-label="選擇縣市"></select></div>
+  </div>
+  <div class="searchbar">
+    <svg class="sicon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+    <input id="placeInput" type="search" enterkeyhint="search" placeholder="搜尋地點，例如：台中車站、新光三越" autocomplete="off">
+    <button id="placeClear" aria-label="清除">✕</button>
   </div>
   <div class="radius" id="radius">
     <button data-r="500">500 m</button>
@@ -449,6 +469,37 @@ const sheet=document.getElementById('sheet'),locBtn=document.getElementById('loc
 document.getElementById('grab').addEventListener('click',()=>{
   sheet.classList.toggle('open');
   locBtn.classList.toggle('up',sheet.classList.contains('open'));
+});
+
+/* ---- 地點搜尋（Nominatim / OpenStreetMap，免金鑰） ---- */
+let placeMarker=null;
+async function searchPlace(q){
+  q=q.trim();
+  if(!q) return;
+  toast('搜尋地點…');
+  try{
+    // 限定台灣、回繁中、取最相關 1 筆
+    const url='https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=tw&accept-language=zh-TW&q='+encodeURIComponent(q);
+    const r=await fetch(url,{headers:{'Accept':'application/json'}});
+    const arr=await r.json();
+    if(!arr||!arr.length){ toast('找不到這個地點'); return; }
+    const la=parseFloat(arr[0].lat), lo=parseFloat(arr[0].lon);
+    // 在地圖標出搜尋的點
+    if(placeMarker) map.removeLayer(placeMarker);
+    placeMarker=L.marker([la,lo],{icon:L.divIcon({className:'',html:'<div class="placepin"></div>',iconSize:[22,22],iconAnchor:[11,22]}),zIndexOffset:600}).addTo(map);
+    map.setView([la,lo],16);
+    load(la,lo);              // 載入該點附近停車
+  }catch(e){
+    console.error(e); toast('地點搜尋失敗，請稍後再試');
+  }
+}
+const placeInput=document.getElementById('placeInput'), placeClear=document.getElementById('placeClear');
+placeInput.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); placeInput.blur(); searchPlace(placeInput.value); }});
+placeInput.addEventListener('input',()=>{ placeClear.classList.toggle('show', placeInput.value.length>0); });
+placeClear.addEventListener('click',()=>{
+  placeInput.value=''; placeClear.classList.remove('show');
+  if(placeMarker){ map.removeLayer(placeMarker); placeMarker=null; }
+  placeInput.focus();
 });
 
 /* ---- 縣市下拉選單 ---- */
