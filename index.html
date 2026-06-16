@@ -271,21 +271,23 @@ function level(a,t){const r=t?a/t:0;if(a<=0)return'red';if(r<0.08)return'red';if
 //   留空字串時，仍使用下方模擬資料，方便先看畫面。
 const CONFIG = { PROXY_URL: 'https://parking-lzbf.onrender.com/api/parking' };
 let lastDataTime=null;             // 後端動態車位的更新時間（給「更新於 X 分鐘前」用）
+let lastMeta={hasStatic:true, cityTotal:0};  // 區分「沒這縣市」/「暫時無回報」/「位置問題」
 
 async function fetchParkingData(la,lo,radius,fresh){
-  if(!CONFIG.PROXY_URL){ lastDataTime=Date.now(); return mockParkingData(la,lo,radius); }
+  if(!CONFIG.PROXY_URL){ lastDataTime=Date.now(); const m=await mockParkingData(la,lo,radius); lastMeta={hasStatic:true,cityTotal:m.length}; return m; }
   try{
     const u=`${CONFIG.PROXY_URL}?lat=${la}&lng=${lo}&radius=${radius}${fresh?'&fresh=1':''}`;
     const r=await fetch(u);
     if(!r.ok) throw new Error('proxy '+r.status);
-    const data=await r.json();           // { lots:[...], dataTime, city }
+    const data=await r.json();           // { lots:[...], dataTime, city, hasStatic, cityTotal }
     lastDataTime = data.dataTime || Date.now();
+    lastMeta = { hasStatic: data.hasStatic!==false, cityTotal: data.cityTotal||0 };
     return Array.isArray(data)?data:(data.lots||[]);
   }catch(e){
     console.error('TDX 讀取失敗，暫時改用模擬資料：',e);
     toast('即時資料讀取失敗，顯示模擬資料');
     lastDataTime=Date.now();
-    return mockParkingData(la,lo,radius);
+    const m=await mockParkingData(la,lo,radius); lastMeta={hasStatic:true,cityTotal:m.length}; return m;
   }
 }
 
@@ -360,7 +362,18 @@ function renderList(){
   document.getElementById('cnt').textContent=lots.length;
   if(!lots.length){
     const cn=nearestCity(center.la,center.lo);
-    el.innerHTML=`<div class="empty"><b>${cn}</b>目前未提供即時車位資料。<br><br>並非每個縣市都有開放即時停車資料，這與 App 無關，而是該縣市政府尚未提供。<br><br>資料較完整的縣市以雙北、桃園、台中等為主，可從左上角切換縣市試試。</div>`;
+    let msg;
+    if(!lastMeta.hasStatic){
+      // 該縣市連停車場清單都沒有 → 政府未提供
+      msg=`<b>${cn}</b>目前未提供即時車位資料。<br><br>並非每個縣市都有開放即時停車資料，這與 App 無關，而是該縣市政府尚未提供。<br><br>資料較完整的縣市以雙北、桃園、台中、台南等為主，可從左上角切換縣市試試。`;
+    } else if(lastMeta.cityTotal>0){
+      // 縣市有即時資料，只是你附近這個範圍沒有 → 位置問題
+      msg=`這個範圍內目前沒有車位回報。<br><br>試試上方放大到 <b>2 km</b>，或移動地圖到市區後按「搜尋此區域」。`;
+    } else {
+      // 有停車場清單、但動態全空 → 來源暫時無回報
+      msg=`<b>${cn}</b>目前無即時車位回報。<br><br>可能是資料來源暫時無回應，稍待一會兒再按右邊的「<b>立即更新</b>」通常就會恢復。`;
+    }
+    el.innerHTML=`<div class="empty">${msg}</div>`;
     return;
   }
   const sorted=[...lots].sort((a,b)=>a._d-b._d);
@@ -405,10 +418,15 @@ async function load(la,lo,fresh){
   const cs=document.getElementById('citySel'); if(cs) cs.value=nearestCity(la,lo);
   toast(fresh?'立即更新中…':'搜尋附近車位…');
   lots=await fetchParkingData(la,lo,radius,fresh);
+  // 找不到、但這縣市其實有資料 → 自動放大範圍重試一次（讀快取、不額外花額度）
+  if(lots.length===0 && radius<3000 && lastMeta.cityTotal>0){
+    const wide=await fetchParkingData(la,lo,3000,fresh);
+    if(wide.length){ lots=wide; toast('附近較少，已自動擴大搜尋範圍'); }
+  }
   lots.forEach(l=>l._d=haversine(la,lo,l.lat,l.lng));
   selId=null;
   renderMap();renderList();updateDataTime();
-  toast('找到 '+lots.length+' 處停車');
+  if(lots.length) toast('找到 '+lots.length+' 處停車');
 }
 
 /* 顯示「更新於 X 分鐘前」，點一下強制更新（只有此時才花 TDX 額度） */
