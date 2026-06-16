@@ -93,12 +93,18 @@ async function tdxGet(path){
   return r.json();
 }
 
-// 依序嘗試多個候選端點，回傳第一個成功的（官方資料標準與實際 API 命名略有差異，故容錯）
+// 依序嘗試多個候選端點：回傳第一個「有資料」的結果。
+// 若某端點回 200 但空陣列，繼續試下一個（解決命名不同、第一個剛好空的問題）。
 async function tryGet(paths){
-  let lastErr;
+  let lastOk=null, lastErr;
   for(const p of paths){
-    try{ return await tdxGet(p); }catch(e){ lastErr=e; }
+    try{
+      const j=await tdxGet(p);
+      if(asArray(j).length) return j;   // 有資料就用它
+      lastOk=j;                          // 先記著空結果，所有端點都空才回它
+    }catch(e){ lastErr=e; }
   }
+  if(lastOk!==null) return lastOk;
   throw lastErr||new Error('all endpoints failed');
 }
 
@@ -188,7 +194,9 @@ async function getStatic(city){
     loadStaticOff(city).catch(e=>{console.warn('static off',city,e.message);return [];}),
     loadStaticOn(city).catch(e=>{console.warn('static on',city,e.message);return [];})
   ]);
-  return staticCache[city]={t:Date.now(),off,on};
+  const result={t:Date.now(),off,on};
+  if(off.length||on.length) staticCache[city]=result;   // 空結果不快取，下次重試
+  return result;
 }
 
 /* ---- 動態車位 ---- */
@@ -224,7 +232,10 @@ async function getDynamic(city, force){
     loadDynOff(city).catch(e=>{console.warn('dyn off',city,e.message);return {};}),
     loadDynOn(city).catch(e=>{console.warn('dyn on',city,e.message);return {};})
   ]);
-  return dynCache[city]={t:Date.now(),map:{...off,...on}};
+  const map={...off,...on};
+  const result={t:Date.now(),map};
+  if(Object.keys(map).length) dynCache[city]=result;    // 空結果不快取，下次重試
+  return result;
 }
 
 /* ====================================================================
@@ -264,7 +275,9 @@ async function getCustom(city, loader, force){
   const c=customCache[city];
   if(!force && c && Date.now()-c.t < DYN_TTL) return c;
   const lots=await loader();
-  return customCache[city]={t:Date.now(), lots};
+  const result={t:Date.now(), lots};
+  if(lots.length) customCache[city]=result;             // 空結果不快取，下次重試
+  return result;
 }
 
 /* ---- 合併靜態 + 動態，輸出前端格式 + 資料時間 ---- */
